@@ -1,0 +1,179 @@
+app: solutionArch
+service: goodtoknowas
+environment:
+    TIMER_ARN: ${self:resources.Outputs.Timer.Value}
+
+
+# custom:
+#   customDomain:
+#     domainName: 'serverless'
+#     basePath: ''
+#     stage: ${self:provider.stage}
+#     createRoute53Record: true
+provider:
+  name: aws
+  runtime: nodejs18.x
+  stage: dev
+  iam:
+    role:
+      name: 'soluArch'
+      statements:
+        - Effect: Allow
+          Action:
+            - "states:StartExecution"
+            - "states:ListStateMachines"
+            - "states:DescribeStateMachine"
+            
+          Resource: "arn:aws:states:*:*:*"
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+            - sqs:Receive*
+          Resource: "arn:aws:sqs:us-east-1:575108959169:queueDemo"
+        - Effect: Allow
+          Action:
+             - "es:*"
+             - "indices:*"
+          Resource: "arn:aws:es:us-east-1:575108959169:domain/signalopensearch"
+        - Effect: Allow
+          Action:
+            - "sns:Publish"
+            - "sns:Subscribe"
+          Resource: "arn:aws:sns:us-east-1:575108959169:testing"
+        - Effect: Allow
+          Action:
+            - "kinesis:PutRecord"
+          Resource: "arn:aws:kinesis:us-east-1:575108959169:stream/DemoStream"
+        - Effect: Allow
+          Action:
+            - "dynamodb:Query"
+            - "dynamodb:GetItem"
+            - "dynamodb:PutItem"
+            - "dynamodb:updateItem"
+            - "dynamodb:Scan"
+          Resource: "arn:aws:dynamodb:us-east-1:575108959169:table/solutionArch"
+        - Effect: Allow
+          Action:
+            - "s3:GetObject"
+            - "s3:PutObject"
+            - "s3:ListBucket"
+          Resource: "arn:aws:s3:::sampath-demo*"
+
+  
+functions:
+  hello:
+    handler: handler.hello
+    events:
+      - http:
+          path: get/{name}
+          method: get
+          request:
+            parameter:
+              paths:
+                name: true
+  getData:
+    handler: openSearch/openSearchHandler.getData
+    events:
+      - http:
+          path: getData
+          method: get
+          request:
+            parameter:
+              paths:
+                name: true
+  snsNotification:
+    handler: sns/snsHandler.snsNotification
+  kinesisStream:
+    handler: kinesis/kinesisHandler.kinesisStream
+    events:
+     - stream:
+          type: kinesis
+          arn: "arn:aws:kinesis:us-east-1:575108959169:stream/DemoStream"
+  preprocess:
+    handler: kinesis/consumerHandler.preprocess
+    events:
+      - stream:
+          arn: "arn:aws:kinesis:us-east-1:575108959169:stream/DemoStream"
+          consumer: true
+  dynamodbPut:
+     handler: dynamodb/handler.dynamodbPut
+     events:
+      - http:
+          path: solution-arch
+          method: post
+  getObject:
+     handler: s3/handler.getObject
+     events:
+      - http:
+          path: getPdf
+          method: get
+  sender:
+    handler: sqs/senderHandler.sender
+    events:
+      - http:
+          method: post
+          path: sender
+  receiver:
+    handler: sqs/SqsReceiver.receiver
+    events:
+      - sqs:
+          arn: "arn:aws:sqs:us-east-1:575108959169:queueDemo"
+  
+  startTimer:
+    handler: stepFunction/stepFunction.startTimer
+    events:
+      - http:
+          path: start-timer
+          method: get
+  sendNotification:
+    handler: stepFunction/stepFunction.sendNotification
+
+stepFunctions:
+  stateMachines:
+    timer:
+        name: timer
+        definition:
+          StartAt: wait_using_seconds
+          States: 
+            wait_using_seconds: 
+              Type: Wait
+              Seconds: 60
+              Next: notify
+            notify: 
+              Type: Task
+              Resource: arn:aws:lambda:us-east-1:575108959169:function:goodtoknowas-dev-sendNotification
+              End: true
+
+resources:
+  Resources:
+  Outputs:
+    Timer:
+      Description: The ARN of the timer machine
+      Value:
+        Ref: Timer
+
+#resources:
+  # Resources:
+  #   receiverQueue:
+  #     Type: AWS::SQS::Queue
+  #     Properties:
+  #       QueueName: receiverQueue
+
+    # Resources:
+    # Outputs:
+    #   Timer:
+    #   Description: The ARN of the timer machine
+    #   Value:
+    #     Ref: Timer
+# resources:
+#   Resources:
+#     SuperTopic:
+#       Type: AWS::SNS::Topic
+#       Properties:
+#         TopicName: testing
+
+plugins:
+  #- serverless-domain-manager
+  - serverless-iamroles
+  - serverless-offline
+  - serverless-step-functions
